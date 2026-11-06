@@ -2,6 +2,9 @@
 
 浏览器体素无双游戏：马超枪挑潼关，迎战曹操。Three.js r186、纯 ES Modules、**无构建步骤**，`python3 -m http.server` 即可开玩。
 
+> **在线游玩：https://voxel-musou-machao.vercel.app/**
+> **仓库：https://github.com/wwwzhouhui/voxel-musou-machao**
+
 > 蓝本对照：mike007jd/voxel-musou（Three.js r186 体素无双，赵云 vs 300 士兵）。
 > 本项目为**同类型原创实现**：体素模型、数值、文案、关卡全部自己写，**没有复制原仓库代码**；
 > 题材换成马超 / 孙策 / 周瑜 / 典韦，战役换成潼关之战（211 年）。
