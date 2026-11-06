@@ -94,6 +94,12 @@ export class Crowd {
       this.meshes[p.key].setColorAt(s.id, this._c.setHex(fc[p.key] ?? p.color));
     }
     for (const p of PART_DEFS) this.meshes[p.key].instanceColor.needsUpdate = true;
+    // 第五阶段：受击变白闪的还原色；追击偏移（每人固定一个绕玩家的接近角与半径，
+    // 远处朝“玩家+偏移点”走、不走同一条直线，近处再直扑玩家）
+    s.baseColors = fc;
+    s.flashColored = false;
+    s.approachAngle = Math.random() * Math.PI * 2;
+    s.approachR = 1.5 + Math.random() * 2;
     return s;
   }
 
@@ -114,12 +120,15 @@ export class Crowd {
     if (!silent && this.onDeath) this.onDeath(s);
   }
 
-  /** 玩家/武将的近战命中判定：扇形范围。返回命中列表 */
+  /** 玩家/武将的近战命中判定：扇形范围。返回命中列表。
+   * opts.exclude：Set<士兵 id>，命中时跳过（第五阶段：蓄力终结 AoE 圈排除主扇形
+   * 已命中者，单次攻击不双重计伤）。 */
   applyMelee(cx, cz, facing, range, arc, dmg, kb, opts = {}) {
     const hits = [];
     const isMusou = !!opts.musou;
     for (const s of this.soldiers) {
       if (!s.alive || s.faction !== 'cao') continue;
+      if (opts.exclude && opts.exclude.has(s.id)) continue;
       const dx = s.x - cx, dz = s.z - cz;
       const d = Math.hypot(dx, dz);
       if (d > range + 0.5) continue;
@@ -140,6 +149,13 @@ export class Crowd {
     if (!s.alive) return false;
     s.hp -= dmg;
     s.flash = 0.12;
+    // 第五阶段：受击变白闪（此前只有 6% 放大、无变色，打上去像木桩）；
+    // 闪结束时 update 里按 baseColors 还原（拉弓中的弓身还原为橙光，见 update）。
+    if (!s.flashColored) {
+      s.flashColored = true;
+      for (const p of PART_DEFS) this.meshes[p.key].setColorAt(s.id, this._c.setHex(0xffffff));
+      for (const p of PART_DEFS) this.meshes[p.key].instanceColor.needsUpdate = true;
+    }
     // 弓手拉弓被命中 → 打断瞄准（弓光熄灭）
     if (s.aiming) { s.aiming = false; s.aimTarget = null; this._setWeaponColor(s, null); }
     const k = kb * (s.elite ? 0.35 : 1);
@@ -168,16 +184,19 @@ export class Crowd {
 
   update(dt, player, alliesTarget) {
     const px = player.x, pz = player.z;
-    // 弓手互斥：同为弓手的两人太近则互相推开（不扎堆），只对弓手做 O(k²)，k 很小
-    const archers = [];
-    for (const s of this.soldiers) if (s.alive && s.type === 'archer' && s.faction === 'cao') archers.push(s);
-    for (let i = 0; i < archers.length; i++) {
-      for (let j = i + 1; j < archers.length; j++) {
-        const a = archers[i], b = archers[j];
+    // 第五阶段：全员互斥推开（此前只对弓手做 2.2 米互斥，近战兵会叠成一坨）。
+    // 任意两名敌军太近则互相推开：弓手参与的按 2.2 米，其余按 1.6 米；
+    // 在场 ≤32 人时约 500 对/帧，开销可忽略。
+    const foes = [];
+    for (const s of this.soldiers) if (s.alive && s.faction === 'cao') foes.push(s);
+    for (let i = 0; i < foes.length; i++) {
+      for (let j = i + 1; j < foes.length; j++) {
+        const a = foes[i], b = foes[j];
+        const minD = (a.type === 'archer' || b.type === 'archer') ? 2.2 : 1.6;
         const dx = b.x - a.x, dz = b.z - a.z;
         const d = Math.hypot(dx, dz);
-        if (d > 0.01 && d < 2.2) {
-          const push = (2.2 - d) * 0.5;
+        if (d > 0.01 && d < minD) {
+          const push = (minD - d) * 0.5;
           const nx = dx / d, nz = dz / d;
           a.x -= nx * push; a.z -= nz * push;
           b.x += nx * push; b.z += nz * push;
@@ -189,6 +208,14 @@ export class Crowd {
       s.stateT -= dt;
       s.atkCd -= dt;
       s.flash = Math.max(0, s.flash - dt);
+      // 第五阶段：受击白闪结束时按出生配色还原（拉弓中的弓身还原为橙光）
+      if (s.flashColored && s.flash <= 0) {
+        s.flashColored = false;
+        const fc = s.baseColors || {};
+        for (const p of PART_DEFS) this.meshes[p.key].setColorAt(s.id, this._c.setHex(fc[p.key] ?? p.color));
+        if (s.aiming) this._setWeaponColor(s, AIM_GLOW);
+        for (const p of PART_DEFS) this.meshes[p.key].instanceColor.needsUpdate = true;
+      }
       s.bob += dt * 9;
 
       // 击退衰减
@@ -268,9 +295,17 @@ export class Crowd {
       } else {
         // chase
         if (d > attackRange) {
-          // 包围偏移：避免全部挤在同一点
+          // 第五阶段：远处朝“目标 + 个人偏移点”走（每人固定接近角/半径），
+          // 不走同一条直线围向玩家；6 米内直扑目标，保证能接敌出招。
+          // 原有的正弦包围摆动保留，与偏移叠加。
+          let mx = dx, mz = dz, md = d;
+          if (isPlayer && d > 6) {
+            mx = tx + Math.cos(s.approachAngle) * s.approachR - s.x;
+            mz = tz + Math.sin(s.approachAngle) * s.approachR - s.z;
+            md = Math.hypot(mx, mz) || 1;
+          }
           const wob = Math.sin(s.id * 2.39 + s.bob * 0.1) * 0.6;
-          const nx = dx / (d || 1), nz = dz / (d || 1);
+          const nx = mx / md, nz = mz / md;
           const ox = -nz * wob, oz = nx * wob;
           s.x += (nx * s.speed + ox) * dt;
           s.z += (nz * s.speed + oz) * dt;

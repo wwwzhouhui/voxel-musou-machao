@@ -9,6 +9,7 @@
 // ============================================================
 import * as THREE from 'three';
 import { box, buildFlag } from './voxel.js';
+import { SPAWN_POINTS } from './spawns.js';
 
 // 确定性伪随机（固定种子，同一关卡每次一样）
 export function mulberry32(seed) {
@@ -206,6 +207,8 @@ function buildTongguan(g, v, rng) {
     south: { x: 0, z: 44 }, player: { x: 0, z: 38 },
     allies: [{ x: -3, z: 34 }, { x: 3, z: 36 }, { x: 0, z: 32 }],
     boss: { x: 0, z: -38 },
+    // 敌潮出生点（第五阶段）：8 点轮询分散，见 src/spawns.js（避开玩家出生点与 Boss 登场区）
+    spawnPoints: SPAWN_POINTS.tongguan,
   };
   return { colliders, spawns, flags, torches };
 }
@@ -384,6 +387,8 @@ function buildYangping(g, v, rng) {
     player: { x: 0, z: 30 },   // 营寨南门外，壕沟北侧
     allies: [{ x: -3, z: 26 }, { x: 3, z: 28 }, { x: 0, z: 24 }],
     boss: { x: 0, z: -38 },    // 北侧箭楼前
+    // 敌潮出生点（第五阶段）：8 点轮询分散，见 src/spawns.js
+    spawnPoints: SPAWN_POINTS.yangping,
   };
   return { colliders, spawns, flags, torches };
 }

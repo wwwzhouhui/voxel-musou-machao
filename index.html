@@ -44,6 +44,8 @@
     animation: pulse .3s infinite alternate; }
   #lock-indicator { position: absolute; top: 46%; left: 50%; transform: translate(-50%,-50%);
     font-size: 15px; color: #ffd23e; text-shadow: 1px 1px 0 #000; }
+  #armor-indicator { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    font-size: 17px; font-weight: bold; color: #ffd23e; text-shadow: 1px 1px 0 #000, 0 0 12px #ff9a1a; }
   #announce { position: absolute; top: 22%; left: 50%; transform: translateX(-50%);
     background: rgba(0,0,0,.65); border: 1px solid #d8a928; border-radius: 8px; padding: 12px 26px;
     font-size: 21px; color: #ffd23e; text-align: center; text-shadow: 1px 1px 0 #000; max-width: 80vw; }
@@ -92,6 +94,7 @@
   .char-title { font-size: 13px; color: #ffd23e; }
   .char-weapon, .char-musou { font-size: 14px; color: #e8e2d0; margin-top: 3px; }
   .char-musou { color: #ff9a1a; }
+  .char-armor { font-size: 13px; color: #ffd23e; margin-top: 3px; }
   .char-desc { font-size: 13px; color: rgba(242,234,216,.8); margin-top: 6px; line-height: 1.5; font-family: sans-serif; }
   .char-stats { font-size: 12px; color: #ffd23e; margin-top: 6px; font-family: sans-serif; }
   .char-best, .mode-best { font-size: 12px; color: #7dff8a; margin-top: 4px; font-family: sans-serif; }
@@ -146,7 +149,7 @@
 <div id="hud" class="hidden">
   <div id="top-left">
     <div id="char-name">马超 · 锦马超</div>
-    <div class="bar-wrap"><div id="hp-bar"></div><div class="bar-text" id="hp-text">120 / 120</div></div>
+    <div class="bar-wrap"><div id="hp-bar"></div><div class="bar-text" id="hp-text">140 / 140</div></div>
     <div class="bar-wrap"><div id="musou-bar"></div><div class="bar-text" id="musou-text">无双 0</div></div>
     <div id="ranged-line" style="margin-top:5px;font-size:13px;color:#ffb36b;text-shadow:1px 1px 0 #000;font-family:sans-serif">远程就绪 [Q]</div>
   </div>
@@ -165,12 +168,13 @@
   </div>
   <div id="boss-warning" class="hidden">⚠ 曹操出招！快闪避！</div>
   <div id="lock-indicator" class="hidden">◎ 已锁定（R 取消）</div>
+  <div id="armor-indicator" class="hidden">🛡 霸体</div>
   <div id="announce" class="hidden"></div>
   <div id="dmg-layer"></div>
   <div id="controls-hint">
     WASD 移动 · J/左键 普攻 N1-N6 · K/右键 蓄力终结 · Q 远程攻击<br>
     空格 跳（骑乘：冲刺） · Shift/L 闪避 · I 无双 · R 锁定 · F 上马/下马 · Esc 暂停 · M 静音 · H 帮助 · B 泛光 · P 像素风 · O 景深<br>
-    拖动鼠标旋转视角 · 滚轮缩放
+    滑动鼠标转视角（自动锁定，Esc 退出锁定并暂停） · 滚轮缩放
   </div>
 </div>
 
@@ -236,9 +240,13 @@
       <div><b>Esc</b>暂停　<b>M</b>静音　<b>H</b>本帮助　<b>B</b>泛光开关　<b>P</b>像素风开关　<b>O</b>景深开关</div>
       <div><b>F</b>靠近马匹上马 / 下马（骑乘移速 ×1.6，持续移动 2 秒冲锋撞人）</div>
       <div><b>空格（骑乘）</b>冲刺爆发 0.5 秒（冷却 3 秒），不能跳跃；<b>Shift/L（骑乘）</b>马上短冲</div>
-      <div><b>拖动鼠标</b>旋转视角　<b>滚轮</b>缩放</div>
+      <div><b>滑动鼠标</b>转视角（进入战斗自动锁定鼠标、隐藏光标；Esc 退出锁定并暂停，点“继续战斗”重新锁定；锁定失败时点画面重试，未锁定时可拖拽视角）　<b>滚轮</b>缩放</div>
     </div>
     <p class="help-note">
+      <b style="color:#ffd23e">霸体：</b>每名武将出招时有霸体窗口（脚下金圈 + 屏幕“🛡 霸体”提示），窗口内受击不被打断、不硬直，伤害照常扣但有减伤：
+      马超 N5–N6 重枪连段后段（减伤 20%）、孙策 C3–C6 蓄力冲锋段（减伤 25%）、周瑜 C1–C6 羽扇施法段（减伤 15%）、
+      典韦 N6 与 C6 终结瞬间（减伤 40%）。霸体只在出招窗口内生效，无双期间全程免疫（等同霸体且更强）。<br>
+      <b style="color:#ffd23e">受击保护：</b>受击后有 0.5 秒无敌帧，不会被多个敌人同帧连打锁死；硬直 0.28 秒，硬直会取消待结算的出招（霸体除外）。<br>
       玩法：潼关之战先斩敌 60 人，引曹操现身并击败他即获胜；自由演武为无尽波次；千人斩试炼限时 3 分钟、目标 240 斩（第四阶段平衡探针后由 300 下调，见 README / PROGRESS）。<br>
       击杀可积攒无双槽；小兵有概率掉落包子，拾取回血 25 点；连击越高越容易打出高评级（S/A/B/C）。<br>
       Boss 出招前会全身闪红并弹出警告，看到警告立刻闪避！<br>

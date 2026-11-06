@@ -75,7 +75,7 @@ async function probeTongguan(hero) {
   const trialEst = Math.round(killsPerGameSec * 180);
   console.log(`\n[${hero}] 潼关自动战斗 ${Math.round(REAL_MS / 1000)}s 真实时间`);
   console.log(`  状态=${end.state} 斩数=${end.kills} 剩余HP=${end.hp} 游戏内时间=${gameSec.toFixed(1)}s`);
-  console.log(`  斩速=${killsPerGameSec.toFixed(2)}/游戏秒 → 试炼 3 分钟外推 ≈ ${trialEst} 斩（目标 300）`);
+  console.log(`  斩速=${killsPerGameSec.toFixed(2)}/游戏秒 → 试炼 3 分钟外推 ≈ ${trialEst} 斩（目标 240）`);
   console.log(`  Boss 出场=${end.bossSpawned} Boss 已败=${end.bossDead} Boss 剩余HP=${end.bossHp}` +
     (bossT0 !== null && bossKilledAt !== null ? ` Boss 战用时=${(bossKilledAt - bossT0).toFixed(1)} 游戏秒` : ''));
   console.log(`  远程发射=${end.shots} 次 被箭命中=${end.arrows} 次 最低HP=${hpMin}`);

@@ -3,7 +3,8 @@
 // 主游戏：固定 60Hz 模拟 / 玩家操控 / 连招结算 / 波次 / Boss / HUD
 // ============================================================
 import * as THREE from 'three';
-import { CHARACTERS, CHAPTERS, MAPS, BOSS, BALANCE, ENEMY_TYPES, ARCHER, MOUNT, RANGED, archerShareForWave, gradeFor } from './config.js';
+import { CHARACTERS, CHAPTERS, MAPS, BOSS, BALANCE, ENEMY_TYPES, ARCHER, MOUNT, RANGED, POINTER_LOCK, archerShareForWave, gradeFor } from './config.js';
+import { pickSpawnPositions } from './spawns.js';
 import { buildHero, buildHorse, box } from './voxel.js';
 import { CUTSCENES, CutsceneRunner } from './cutscene.js';
 import { MountState, shouldFallFromHit } from './mount.js';
@@ -74,6 +75,10 @@ export class Game {
     this.waveSpawned = 0;
     this.waveQuota = 0;
     this.spawnT = 0;
+    this._spawnPtIdx = 0; // 出生点轮询下标（第五阶段：跨批次连续轮询，分散出生）
+    // 指针锁定（第五阶段）：开战自动请求 Pointer Lock，滑鼠标转视角
+    this.pointerLocked = false;
+    this._lockHintShown = false;
     this.trialLeft = this.chapter.timeLimit || 0;
     this.lockTarget = null;
     this.camYaw = Math.PI;      // 相机绕玩家角度
@@ -175,6 +180,16 @@ export class Game {
     // 玩家
     this.player = this._makePlayer();
     this.scene.add(this.player.group);
+
+    // 霸体光圈（第五阶段）：脚下金色圆环，霸体窗口内显示；复用灼烧区地面标记的
+    // 手法（扁平 Mesh），不用共享材质的 emissive，避免武将/Boss 共用材质串色。
+    this.armorRing = new THREE.Mesh(
+      new THREE.RingGeometry(0.9, 1.15, 32),
+      new THREE.MeshBasicMaterial({ color: 0xffd23e, transparent: true, opacity: 0.85, side: THREE.DoubleSide }),
+    );
+    this.armorRing.rotation.x = -Math.PI / 2;
+    this.armorRing.visible = false;
+    this.scene.add(this.armorRing);
 
     // 坐骑：体素马停在出生点附近（玩家出生点 +3, +2），可按 F 上马
     this.horse = buildHorse(this.charId);
@@ -325,7 +340,7 @@ export class Game {
       facing: Math.PI, // 面向北（关门）
       hp: st.hp, maxHp: st.hp, musou: 0,
       speed: st.speed, atk: st.atk, range: st.range,
-      combo: new ComboMachine(),
+      combo: new ComboMachine(spec.superArmor), // 第五阶段：武将霸体配置进连招状态机
       moveMag: 0, walkPhase: 0, grounded: true,
       dodgeDir: { x: 0, z: -1 }, dodgeT: 0,
       hurtFlash: 0, attackAnimT: 0, attackKind: null, attackStage: 0,
@@ -426,17 +441,38 @@ export class Game {
       this._px = e.clientX; this._py = e.clientY;
       if (this.state === 'cutscene') { this.skipCutscene(); return; }
       if (this.state === 'playing') {
+        // 第五阶段：未锁定时点画面即请求锁定（点击是手势，浏览器允许）；已锁定则跳过
+        this._requestPointerLock();
         if (e.button === 0) this._pressAttack();
         if (e.button === 2) this._pressCharge();
       }
     });
     addEventListener('mouseup', () => { this.pointerDown = false; });
     addEventListener('mousemove', (e) => {
-      if (!this.pointerDown || this.state !== 'playing') return;
+      if (this.state !== 'playing') return;
+      if (this.pointerLocked) {
+        // 第五阶段：指针锁定中，滑动鼠标直接转视角（movementX/Y 为相对位移，
+        // 不受屏幕边缘限制；灵敏度见 config.POINTER_LOCK）
+        this.camYaw -= (e.movementX || 0) * POINTER_LOCK.sensitivity;
+        this.camPitch = Math.max(POINTER_LOCK.pitchMin, Math.min(POINTER_LOCK.pitchMax,
+          this.camPitch + (e.movementY || 0) * POINTER_LOCK.sensitivity));
+        return;
+      }
+      // 未锁定时的拖拽视角（锁定失败 / 触屏的兜底，不替代指针锁定）
+      if (!this.pointerDown) return;
       this.camYaw -= (e.clientX - this._px) * 0.005;
       this.camPitch = Math.max(0.08, Math.min(1.0, this.camPitch + (e.clientY - this._py) * 0.003));
       this._px = e.clientX; this._py = e.clientY;
     });
+    // 第五阶段：指针锁定状态变化。锁定中浏览器会吞掉 Esc 按键（用来退出锁定），
+    // 所以“Esc 退出锁定即暂停”靠 pointerlockchange 实现，而不是 keydown；
+    // 切出窗口/失焦同样先丢锁定再暂停，状态不丢（pause 只改 state，不清进度）。
+    document.addEventListener('pointerlockchange', () => {
+      const locked = document.pointerLockElement === this.renderer.domElement;
+      this.pointerLocked = locked;
+      if (!locked && this.state === 'playing') this.pause();
+    });
+    document.addEventListener('pointerlockerror', () => { this.pointerLocked = false; });
     el.addEventListener('contextmenu', (e) => e.preventDefault());
     el.addEventListener('wheel', (e) => {
       this.camDist = Math.max(6, Math.min(14, this.camDist + e.deltaY * 0.01));
@@ -493,6 +529,8 @@ export class Game {
     this._announce(`${this.chapter.name} —— ${this.chapter.briefing.split('\n')[0]}`);
     this.sfx.waveHorn();
     this._startWave();
+    // 第五阶段：开战自动请求指针锁定（过场后可能已无手势，失败则静默走点击锁定兜底）
+    this._requestPointerLock();
   }
 
   // ---------------- 剧情过场 ----------------
@@ -581,9 +619,36 @@ export class Game {
     }
   }
 
+  // ---------------- 指针锁定（第五阶段） ----------------
+  /** 请求指针锁定：开战/继续/点画面时调用。无手势、刚 Esc 退出冷却期内或
+   * 无头环境下会被浏览器拒绝——必须接住 Promise rejection，否则控制台报错；
+   * 失败不抛错，保留拖拽视角兜底，并提示一次点击画面重试。 */
+  _requestPointerLock() {
+    if (!this.renderer || this.pointerLocked) return;
+    // 触屏设备没有鼠标，不请求锁定（触屏不受影响）
+    if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) return;
+    try {
+      const r = this.renderer.domElement.requestPointerLock();
+      if (r && typeof r.catch === 'function') r.catch(() => this._onLockFailed());
+    } catch (e) { this._onLockFailed(); }
+  }
+
+  _onLockFailed() {
+    if (this.state !== 'playing' || this._lockHintShown) return;
+    this._lockHintShown = true;
+    this._announce('鼠标未锁定：点击画面可锁定视角（滑动鼠标转视角）');
+  }
+
+  /** 退出指针锁定（暂停/结算/回标题时恢复光标） */
+  _exitPointerLock() {
+    try { if (document.pointerLockElement) document.exitPointerLock(); } catch (e) { /* 忽略 */ }
+    this.pointerLocked = false;
+  }
+
   pause() {
     if (this.state !== 'playing') return;
     this.state = 'paused';
+    this._exitPointerLock();
     $('pause-screen').classList.remove('hidden');
     $('pause-title').textContent = '暂停';
   }
@@ -593,10 +658,13 @@ export class Game {
     this.state = 'playing';
     $('pause-screen').classList.add('hidden');
     this._last = performance.now();
+    // 继续战斗即重新请求锁定（点击/按键是手势，浏览器允许）
+    this._requestPointerLock();
   }
 
   quitToMenu() {
     this.state = 'menu';
+    this._exitPointerLock();
     this.cutscene = null;
     this.cutsceneAfter = null;
     const cutEl = $('cutscene');
@@ -803,6 +871,15 @@ export class Game {
 
     // ---- 动画 ----
     this._animatePlayer(dt);
+    // ---- 霸体光圈：跟随玩家脚下，窗口内显示（HUD 图标在 _updateHudThrottled 里同步） ----
+    if (this.armorRing) {
+      const armored = p.combo.isArmored;
+      this.armorRing.visible = armored;
+      if (armored) {
+        this.armorRing.position.set(p.x, 0.06, p.z);
+        this.armorRing.material.opacity = 0.6 + 0.25 * Math.abs(Math.sin(this.time * 8));
+      }
+    }
   }
 
   // ---------------- 战斗输入 ----------------
@@ -870,7 +947,7 @@ export class Game {
       const dx = s.x - p.x, dz = s.z - p.z;
       const d = Math.hypot(dx, dz) || 1;
       const killed = this.crowd.damage(s, dmg, dx / d, dz / d, 6);
-      this._dmgNum(s.x, (s.y || 0) + 2.1, Math.round(dmg), '#ffb36b');
+      this._dmgNum(s.x, (s.y || 0) + 2.1, s.z, Math.round(dmg), '#ffb36b');
       p.musou = Math.min(100, p.musou + (this.ranged.spec.musouGain || 3) * this.charSpec.stats.musouGain);
       this.sfx.hit(false);
       if (killed) this._registerKill(s);
@@ -907,7 +984,7 @@ export class Game {
           if (!s.alive || s.faction !== 'cao') continue;
           if (Math.hypot(s.x - zone.x, s.z - zone.z) > zone.radius) continue;
           const killed = this.crowd.damage(s, zone.tickDamage, 0, 0, 0);
-          this._dmgNum(s.x, (s.y || 0) + 2.1, Math.round(zone.tickDamage), '#ff7a1a');
+          this._dmgNum(s.x, (s.y || 0) + 2.1, s.z, Math.round(zone.tickDamage), '#ff7a1a');
           if (killed) this._registerKill(s);
         }
       }
@@ -1077,6 +1154,12 @@ export class Game {
   // ---------------- 出招与命中结算 ----------------
   _doAttack(act) {
     const p = this.player;
+    // 第五阶段：上一招的待结算命中若还在（J 后 0.09 秒内按 K），先立即结算再出新招，
+    // 否则 pendingHit 会被覆盖丢掉一次命中（旧行为：J→K 极快连按会吞掉 J 的伤害）。
+    if (this.pendingHit) {
+      this._resolveHit(this.pendingHit);
+      this.pendingHit = null;
+    }
     p.attackKind = act.kind;
     p.attackStage = act.stage;
     p.attackAnimT = 0;
@@ -1102,12 +1185,14 @@ export class Game {
     const p = this.player;
     const musou = p.combo.musouActive;
     let dmg = 10 * h.dmg * p.atk * (musou ? 1.6 : 1);
+    // 主扇形先结算；范围冲击圈只打扇形外的人（第五阶段修：旧版两圈各算一次，
+    // 重叠区同一敌人一次蓄力吃两次伤害 1.0 + 0.6 倍，见 PROGRESS 第五阶段缺陷 3）。
+    const hits = this.crowd.applyMelee(p.x, p.z, p.facing, h.range, h.arc, dmg, h.kb, { musou });
     if (h.kind === 'charge' && h.aoe > 0) {
-      // 范围冲击：额外一圈
-      const extra = this.crowd.applyMelee(p.x, p.z, p.facing, h.range + 1.5, Math.PI * 2, dmg * 0.6, h.kb * 0.7);
+      const extra = this.crowd.applyMelee(p.x, p.z, p.facing, h.range + 1.5, Math.PI * 2, dmg * 0.6, h.kb * 0.7,
+        { exclude: new Set(hits.map((s) => s.id)) });
       this._afterHits(extra, false);
     }
-    const hits = this.crowd.applyMelee(p.x, p.z, p.facing, h.range, h.arc, dmg, h.kb, { musou });
     this._bossMeleeCheck(h.range, dmg, h.kb);
     this._afterHits(hits, h.kind === 'charge' || h.stage === 6);
     if (hits.length > 0) {
@@ -1124,7 +1209,7 @@ export class Game {
   _afterHits(hits, heavy) {
     const p = this.player;
     for (const s of hits) {
-      this._dmgNum(s.x, s.y + 2.1, Math.round(10 * p.atk * (heavy ? 1.5 : 1)), '#ffd23e');
+      this._dmgNum(s.x, s.y + 2.1, s.z, Math.round(10 * p.atk * (heavy ? 1.5 : 1)), '#ffd23e');
       p.musou = Math.min(100, p.musou + (ENEMY_TYPES[s.type]?.musou || 2) * this.charSpec.stats.musouGain);
       if (!s.alive) this._registerKill(s);
     }
@@ -1137,12 +1222,13 @@ export class Game {
     const p = this.player;
     b.hp -= dmg;
     b.flash = 0.15;
-    this._dmgNum(b.x, 3.2, Math.round(dmg), '#ff9a5a');
+    this._dmgNum(b.x, 3.2, b.z, Math.round(dmg), '#ff9a5a');
     p.musou = Math.min(100, p.musou + 6);
     this.sfx.bossHit();
     if (b.hp <= 0) {
       b.hp = 0; b.dead = true;
       this.bossDead = true;
+      this._clearBossTelegraph(); // 死时清掉前摇警告与闪红（否则警告残留在结算前）
       this._burstDebris(b.x, b.z, 0x6b3fa0, 40);
       this.kills += 10;
       this._announce('曹操已败！');
@@ -1167,20 +1253,32 @@ export class Game {
 
   _onSoldierDeath(s) { /* 结算已在 _afterHits 处理 */ }
 
+  /**
+   * 玩家受击（第五阶段重写，见 PROGRESS 缺陷 1/2）：
+   * takeHit 返回 false → 免疫（闪避/无双/受击无敌帧内），不扣血、不硬直；
+   * 返回 'armor' → 霸体窗口内：扣血（按武将 dmgMul 减伤），不打断、不硬直、
+   * 不清连段、不取消待结算出招，落马按减伤后伤害判定；
+   * 返回 true → 命中：扣血、0.28 秒硬直、取消待结算出招，并挂 0.5 秒受击无敌帧。
+   */
   _onPlayerHit(dmg, x, z, isBossCharge = false) {
     const p = this.player;
     if (p.dead) return;
-    if (!p.combo.takeHit(dmg)) return; // 闪避/无双中免疫
-    // 落马：单次重击 ≥20，或 Boss 冲锋撞中
-    if (this.mount.mounted && shouldFallFromHit(dmg, isBossCharge)) {
+    const res = p.combo.takeHit(dmg);
+    if (res === false) return; // 免疫：不扣血
+    const armored = res === 'armor';
+    const effDmg = armored ? dmg * (p.combo.armor?.dmgMul ?? 1) : dmg;
+    if (!armored) this.pendingHit = null; // 硬直取消待结算出招（霸体则保留，出招继续）
+    // 落马：单次重击 ≥20，或 Boss 冲锋撞中（霸体按减伤后伤害判定，Boss 冲锋撞中仍必落马）
+    if (this.mount.mounted && shouldFallFromHit(effDmg, isBossCharge)) {
       this._dismount('被撞落马！');
     }
-    p.hp -= dmg;
-    p.hurtFlash = 0.3;
-    this.damageTaken += dmg;
+    p.hp -= effDmg;
+    // 霸体受击不闪红（脚下金圈 + HUD 图标已是反馈）；普通受击才闪红
+    if (!armored) p.hurtFlash = 0.3;
+    this.damageTaken += effDmg;
     this.combo = 0;
     this.sfx.hurt();
-    this._dmgNum(p.x, p.y + 2.2, `-${Math.round(dmg)}`, '#ff5a4a');
+    this._dmgNum(p.x, p.y + 2.2, p.z, `-${Math.round(effDmg)}`, '#ff5a4a');
     this._shake(0.25);
     if (p.hp <= 0) {
       p.hp = 0; p.dead = true;
@@ -1206,6 +1304,14 @@ export class Game {
     return best;
   }
 
+  /** 第五阶段：清掉 Boss 前摇预告（屏幕警告 + 全身闪红），在伤害落点调用 */
+  _clearBossTelegraph() {
+    $('boss-warning').classList.add('hidden');
+    if (this.boss) {
+      this.boss.rig.group.traverse((o) => { if (o.isMesh) o.material.emissive?.setRGB?.(0, 0, 0); });
+    }
+  }
+
   // ---------------- Boss AI ----------------
   _updateBoss(dt) {
     const b = this.boss;
@@ -1227,8 +1333,9 @@ export class Game {
       });
       $('boss-warning').classList.remove('hidden');
       if (b.stateT <= 0) {
-        $('boss-warning').classList.add('hidden');
-        b.rig.group.traverse((o) => { if (o.isMesh) o.material.emissive?.setRGB?.(0, 0, 0); });
+        // 第五阶段修：旧版前摇一结束就熄警告、清闪红，但伤害落在 0.3–0.55 秒后
+        // （横扫结算 / 冲锋撞线），警告消失时伤害还没来，玩家会误判安全；
+        // 现改为警告与闪红持续到伤害落点（横扫结算 / 冲锋结束）才清。
         if (b.telegraph === 'charge') { b.state = 'charging'; b.stateT = 0.55; this.sfx.bossRoar(); }
         else { b.state = 'sweep'; b.stateT = 0.3; }
       }
@@ -1237,11 +1344,12 @@ export class Game {
       b.z += Math.cos(b.facing) * 17 * dt;
       b.walkPhase += dt * 16;
       if (d < 2.2 && !p.combo.invulnerable && !p.dead) this._onPlayerHit(BOSS.atk * 1.4, b.x, b.z, true); // Boss 冲锋撞中必落马
-      if (b.stateT <= 0) { b.state = 'recover'; b.stateT = 0.9; }
+      if (b.stateT <= 0) { this._clearBossTelegraph(); b.state = 'recover'; b.stateT = 0.9; }
     } else if (b.state === 'sweep') {
       if (b.stateT <= 0) {
         if (d < 4.2) this._onPlayerHit(BOSS.atk, b.x, b.z);
         this._burstDebris(b.x + Math.sin(b.facing) * 2, b.z + Math.cos(b.facing) * 2, 0xb06bd8, 14);
+        this._clearBossTelegraph();
         b.state = 'recover'; b.stateT = 1.0;
       }
     } else if (b.state === 'recover') {
@@ -1298,7 +1406,8 @@ export class Game {
   _startWave() {
     if (this.modeId === 'endless' || this.modeId === 'trial') {
       this.wave = 1;
-      this.waveQuota = this.modeId === 'trial' ? 40 : 16;
+      // 第五阶段：首波人数下调约 30%（试炼 40→28，演武 16→11）
+      this.waveQuota = this.modeId === 'trial' ? 28 : 11;
     } else {
       this.wave = 1;
       this.waveQuota = this.chapter.waves[0];
@@ -1330,12 +1439,14 @@ export class Game {
             this.sfx.waveHorn();
           }
         } else if (this.modeId === 'endless') {
-          this.waveQuota = 14 + this.wave * 4;
+          // 第五阶段：后续波次 14+波×4 → 10+波×3（约 -28%）
+          this.waveQuota = 10 + this.wave * 3;
           this.waveSpawned = 0;
           this._announce(`第 ${this.wave} 波！敌军 ${this.waveQuota} 人`);
           this.sfx.waveHorn();
         } else { // trial
-          this.waveQuota = 45;
+          // 第五阶段：试炼每波 45→32（约 -29%）；目标 240 斩不动，波次无限续
+          this.waveQuota = 32;
           this.waveSpawned = 0;
         }
       }
@@ -1343,7 +1454,8 @@ export class Game {
     }
     this.spawnT -= dt;
     if (this.spawnT <= 0 && this.crowd.aliveCount('cao') < this._maxAliveCap) {
-      this._spawnBatch(this.modeId === 'trial' ? 4 : 2);
+      // 第五阶段：试炼每批 4→3 人（同屏更少，节奏放缓）；间隔见 BALANCE.spawn.interval（0.75 秒）
+      this._spawnBatch(this.modeId === 'trial' ? 3 : 2);
       this.spawnT = BALANCE.spawn.interval;
     }
     // 友军补员
@@ -1354,17 +1466,25 @@ export class Game {
     }
   }
 
+  /**
+   * 第五阶段：出生点按 8 点轮询 + 单点抖动 + 同批次最小间距 3 米分配
+   * （旧版只在北/东/西 3 点周围 ±4 米随机刷，天然扎堆）。
+   * 轮询下标跨批次连续，同一批次内不重复用点（每批 ≤3 人 < 8 点）。
+   */
   _spawnBatch(n) {
-    const pts = [this.world.spawns.north, this.world.spawns.east, this.world.spawns.west];
+    const pts = this.world.spawns.spawnPoints
+      || [this.world.spawns.north, this.world.spawns.east, this.world.spawns.west];
+    const { positions, nextIdx } = pickSpawnPositions(pts, n, this._spawnPtIdx);
+    this._spawnPtIdx = nextIdx;
     // 弓手占比随波次上升：15% 起，+2%/波，上限 25%
     const archerShare = archerShareForWave(this.wave);
-    for (let i = 0; i < n && this.waveSpawned < this.waveQuota; i++) {
-      const pt = pts[Math.floor(Math.random() * pts.length)];
+    for (let i = 0; i < positions.length && this.waveSpawned < this.waveQuota; i++) {
+      const pt = positions[i];
       const r = Math.random();
       const type = r < 0.45 ? 'soldier'
         : r < 0.70 ? 'spearman'
         : r < 0.70 + archerShare ? 'archer' : 'elite';
-      const s = this.crowd.spawn(type, pt.x + (Math.random() - 0.5) * 8, pt.z + (Math.random() - 0.5) * 6, 'cao');
+      const s = this.crowd.spawn(type, pt.x, pt.z, 'cao');
       if (s) this.waveSpawned++;
     }
   }
@@ -1408,7 +1528,7 @@ export class Game {
         p.hp = Math.min(p.maxHp, p.hp + BALANCE.dropHeal);
         d.active = false; d.group.visible = false;
         this.sfx.heal();
-        this._dmgNum(p.x, p.y + 2.2, `+${BALANCE.dropHeal}`, '#7dff8a');
+        this._dmgNum(p.x, p.y + 2.2, p.z, `+${BALANCE.dropHeal}`, '#7dff8a');
       }
     }
   }
@@ -1505,10 +1625,12 @@ export class Game {
     }
   }
 
-  _dmgNum(x, y, text, color) {
+  // 第五阶段修：旧版 z 硬编码 this.player.z，敌人的飘字按玩家 z 投影，
+  // 离玩家越远偏差越大（飘字不落在被打的敌人头上）；现改为显式传 z。
+  _dmgNum(x, y, z, text, color) {
     const layer = $('dmg-layer');
     if (this.dmgNums.length > 24) return;
-    this._v3.set(x, y, this.player.z);
+    this._v3.set(x, y, z);
     const v = this._v3.clone().project(this.camera);
     if (v.z > 1) return;
     const el = document.createElement('div');
@@ -1646,6 +1768,9 @@ export class Game {
       : this._fmtTime(this.time);
     $('wave-text').textContent = `第 ${this.wave} 波`;
     $('char-name').textContent = `${this.charSpec.name} · ${this.charSpec.title}`;
+    // 第五阶段：霸体 HUD 图标（脚下金圈的文字版反馈，与霸体窗口同步显隐）
+    const armorEl = $('armor-indicator');
+    if (armorEl) armorEl.classList.toggle('hidden', !p.combo.isArmored);
     const obj = this.modeId === 'tongguan'
       ? (this.bossSpawned ? '击败曹操！' : `斩敌 ${Math.min(this.kills, 60)} / 60，引曹操现身`)
       : this.modeId === 'trial' ? `目标：${this.kills} / ${this.chapter.killTarget} 斩` : `已坚持 ${this.wave} 波`;
@@ -1756,6 +1881,7 @@ export class Game {
       trialLeft: this.chapter.timeLimit || 0, lockTarget: null, pendingHit: null,
     });
     this._musouNotified = false;
+    this._lockHintShown = false; // 每局重新提示一次锁定
     this.camYaw = Math.PI;
     this.player.group.position.set(this.world.spawns.player.x, 0, this.world.spawns.player.z);
     this.camera.position.set(0, 8, 46);
@@ -1765,6 +1891,7 @@ export class Game {
   _endRun(won, reason) {
     if (this.state !== 'playing') return;
     this.state = 'over';
+    this._exitPointerLock(); // 结算时恢复光标，方便点按钮
     // 结算时下马（马匹留在原地）
     if (this.mount.mounted) { this.mount.dismount(); this.player.group.position.y = this.player.y; }
     this.victory = won;

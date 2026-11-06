@@ -39,6 +39,7 @@ function renderCharCards() {
       <div class="char-name">${c.name} <span class="char-title">${c.title}</span></div>
       <div class="char-weapon">${c.weaponName}</div>
       <div class="char-musou">无双：${c.musouName}</div>
+      <div class="char-armor">🛡 霸体：${c.superArmor.label}（减伤 ${Math.round((1 - c.superArmor.dmgMul) * 100)}%）</div>
       <div class="char-desc">${c.desc}</div>
       <div class="char-stats">体力 ${c.stats.hp} · 攻击 ×${c.stats.atk} · 速度 ${c.stats.speed}</div>
       <div class="char-best" id="best-char-${id}"></div>`;

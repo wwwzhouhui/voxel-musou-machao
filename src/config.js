@@ -16,7 +16,10 @@ export const CHARACTERS = {
       skin: 0xf0c08c, hair: 0x1a1a1a, helmet: 0xe8eef2, plume: 0xc8102e,
       trim: 0xd8a928, boots: 0x4a3226, weapon: 0xc9d4dc, weaponGlow: 0xffffff,
     },
-    stats: { hp: 120, atk: 1.0, speed: 9.2, range: 3.4, musouGain: 1.0 },
+    stats: { hp: 140, atk: 1.0, speed: 9.2, range: 3.4, musouGain: 1.0 },
+    // 霸体（第五阶段）：只在出招窗口内生效，非全程。windows 只引用真实存在的招式：
+    // 马超 N5–N6 重枪连段后段；dmgMul 为霸体期间所受伤害倍率（写明，非免伤）。
+    superArmor: { label: '重枪连段·后段霸体', dmgMul: 0.8, windows: [{ kind: 'normal', stages: [5, 6] }] },
     desc: '扶风茂陵人，面如冠玉，目如流星。潼关一战杀得曹操割须弃袍。枪法如银龙出海，连段迅捷、范围开阔。',
   },
   sunce: {
@@ -28,7 +31,9 @@ export const CHARACTERS = {
       skin: 0xe8b07e, hair: 0x241a12, helmet: 0x3a7d44, plume: 0xffd23e,
       trim: 0xc8102e, boots: 0x3a2a1a, weapon: 0x8a8f96, weaponGlow: 0xffe9a8,
     },
-    stats: { hp: 135, atk: 1.12, speed: 8.6, range: 3.2, musouGain: 0.95 },
+    stats: { hp: 160, atk: 1.12, speed: 8.6, range: 3.2, musouGain: 0.95 },
+    // 霸体：蓄力终结 C3–C6（枪势大开大合的冲锋前冲段）霸体。
+    superArmor: { label: '蓄力冲锋·后段霸体', dmgMul: 0.75, windows: [{ kind: 'charge', stages: [3, 4, 5, 6] }] },
     desc: '江东猛虎，十七岁便纵横沙场。枪势大开大合，伤害更高，尤擅以力破巧。',
   },
   zhouyu: {
@@ -40,7 +45,9 @@ export const CHARACTERS = {
       skin: 0xf0c08c, hair: 0x1a1a1a, helmet: 0x2a2a2a, plume: 0xffffff,
       trim: 0xd8a928, boots: 0x2a2118, weapon: 0xf5f2e8, weaponGlow: 0xff7a1a,
     },
-    stats: { hp: 105, atk: 0.9, speed: 8.8, range: 3.8, musouGain: 1.15 },
+    stats: { hp: 125, atk: 0.9, speed: 8.8, range: 3.8, musouGain: 1.15 },
+    // 霸体：羽扇施法段即蓄力终结 C1–C6 全程霸体（施法窗口短、减伤最弱，仅 0.85）。
+    superArmor: { label: '羽扇施法·蓄力霸体', dmgMul: 0.85, windows: [{ kind: 'charge', stages: [1, 2, 3, 4, 5, 6] }] },
     desc: '羽扇纶巾，谈笑间樯橹灰飞烟灭。羽扇挥出火浪，攻击范围最远，无双积攒最快。',
   },
   dianwei: {
@@ -52,7 +59,9 @@ export const CHARACTERS = {
       skin: 0xd89a6a, hair: 0x0d0d0d, helmet: 0x2c2f38, plume: 0x000000,
       trim: 0xb08d3e, boots: 0x241a12, weapon: 0x5a5f6a, weaponGlow: 0xffd23e,
     },
-    stats: { hp: 160, atk: 1.25, speed: 7.6, range: 2.8, musouGain: 0.9 },
+    stats: { hp: 190, atk: 1.25, speed: 7.6, range: 2.8, musouGain: 0.9 },
+    // 霸体：只在最重的两招——N6 与 C6 终结瞬间霸体，窗口最窄、减伤最强 0.6。
+    superArmor: { label: '重戟终结·霸体', dmgMul: 0.6, windows: [{ kind: 'normal', stages: [6] }, { kind: 'charge', stages: [6] }] },
     desc: '古之恶来，力大无穷。双戟一击千钧，单发伤害全队最高，唯速度稍逊。',
   },
 };
@@ -143,7 +152,9 @@ export const CHAPTERS = {
     id: 'tongguan', name: '第一章 · 潼关之战', year: '建安十六年（211年）',
     desc: '马超联军据潼关，曹操亲率大军来攻。先斩敌军六十，再于关前与曹操决一死战！',
     variant: 'day', killTarget: 60, bossAfterKills: 60,
-    waves: [14, 18, 22, 26],
+    // 波次总人数 80 → 58（-27.5%，第五阶段）：四波 [10,13,16,19]；
+    // 58 < 60 触发线时由 _updateSpawner 的补兵兜底（波次出完后继续补 12 人一波直到 60 斩），Boss 触发无死锁。
+    waves: [10, 13, 16, 19],
     briefing: '马超：「曹操老贼，今日潼关便是你的葬身之地！」\n庞德：「少将军，末将愿为先锋！」',
   },
   endless: {
@@ -166,8 +177,9 @@ export const CHAPTERS = {
 
 // ---------- 平衡 ----------
 export const BALANCE = {
-  player: { baseHp: 120, dodgeCooldown: 0.9, dodgeIframes: 0.32, dodgeSpeed: 26, dodgeTime: 0.22,
-            jumpVel: 9.5, gravity: -26, musouDuration: 6, musouCost: 100 },
+  player: { baseHp: 140, dodgeCooldown: 0.9, dodgeIframes: 0.32, dodgeSpeed: 26, dodgeTime: 0.22,
+            jumpVel: 9.5, gravity: -26, musouDuration: 6, musouCost: 100,
+            hurtIframes: 0.5 }, // 受击后无敌帧（第五阶段）：一次受击命中后 0.5 秒内不再受击，防多敌同帧连打锁死；长于硬直 0.28 秒，覆盖受击后摇
   // N1..N6 连段：伤害倍率 / 出招时长(s) / 攻击距离 / 扇形角度 / 击退
   combo: [
     { dmg: 1.0, dur: 0.26, range: 3.2, arc: 1.9, kb: 3.5 },
@@ -193,7 +205,16 @@ export const BALANCE = {
   hitstop: { light: 0.035, heavy: 0.07, musou: 0.12 },
   camera: { dist: 9.5, height: 4.6, lerp: 8 },
   world: { size: 120, bound: 52 },  // 战场半宽
-  spawn: { interval: 0.55, batch: 2, maxAlive: 60 },
+  spawn: { interval: 0.75, batch: 2, maxAlive: 42 }, // 第五阶段：刷新间隔 0.55→0.75 秒（节奏放缓）；maxAlive 仅作配置同步，实际在场上限由自适应画质档位 maxAlive 控制（32/28/22/17）
+};
+
+// ---------- 指针锁定（第五阶段） ----------
+// 开战后自动请求 Pointer Lock：滑动鼠标直接转视角。sensitivity 为弧度/像素，
+// 0.0028 属适中（滑 100 像素约转 16°）；pitch 限幅与旧拖拽一致（0.08–1.0）。
+export const POINTER_LOCK = {
+  sensitivity: 0.0028,
+  pitchMin: 0.08,
+  pitchMax: 1.0,
 };
 
 // ---------- 评级 ----------

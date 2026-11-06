@@ -1,7 +1,8 @@
 // Node 回归自检：连招状态机 / 评级 / 配置 / 地图 / 弓手 / 箭矢（不依赖浏览器与 three）
 // 用法：node tests/checks.mjs
-import { ComboMachine } from '../src/combat.js';
-import { gradeFor, parseUrlParams, BALANCE, CHARACTERS, CHAPTERS, MAPS, ARCHER, MOUNT, archerShareForWave } from '../src/config.js';
+import { ComboMachine, inSuperArmorWindow } from '../src/combat.js';
+import { gradeFor, parseUrlParams, BALANCE, BOSS, CHARACTERS, CHAPTERS, MAPS, ARCHER, MOUNT, POINTER_LOCK, archerShareForWave } from '../src/config.js';
+import { pickSpawnPositions, SPAWN_POINTS, SPAWN_MIN_GAP } from '../src/spawns.js';
 import { ArrowPool, archerDecision, aimVelocity } from '../src/arrows.js';
 import { CUTSCENES, CutsceneRunner, cutsceneTotal } from '../src/cutscene.js';
 import { MountState, shouldFallFromHit } from '../src/mount.js';
@@ -76,7 +77,7 @@ t('B 级：中等', gradeFor({ kills: 150, damageTaken: 100, timeSec: 500, died:
 
 console.log('== 配置 ==');
 t('4 名武将', Object.keys(CHARACTERS).length === 4);
-t('马超默认', CHARACTERS.machao.weaponType === 'spear' && CHARACTERS.machao.stats.hp === 120);
+t('马超默认（第五阶段血量 140）', CHARACTERS.machao.weaponType === 'spear' && CHARACTERS.machao.stats.hp === 140);
 t('周瑜羽扇', CHARACTERS.zhouyu.weaponType === 'fan');
 t('典韦双戟', CHARACTERS.dianwei.weaponType === 'axes');
 t('3 种模式', Object.keys(CHAPTERS).length === 3);
@@ -233,7 +234,7 @@ t('弓箭 7 伤不落马', shouldFallFromHit(7) === false);
 console.log('== 自适应画质 ==');
 t('4 档画质', QUALITY_TIERS.length === 4);
 t('档位标签高中低极低', QUALITY_TIERS.map((q) => q.label).join('/') === '高/中/低/极低');
-t('档位敌数上限递减', QUALITY_TIERS[0].maxAlive === 46 && QUALITY_TIERS[1].maxAlive === 40 && QUALITY_TIERS[2].maxAlive === 32 && QUALITY_TIERS[3].maxAlive === 24);
+t('档位敌数上限递减（第五阶段 32/28/22/17）', QUALITY_TIERS[0].maxAlive === 32 && QUALITY_TIERS[1].maxAlive === 28 && QUALITY_TIERS[2].maxAlive === 22 && QUALITY_TIERS[3].maxAlive === 17);
 t('低档关 Bloom', QUALITY_TIERS[2].bloom === false && QUALITY_TIERS[2].shadows === false);
 t('仅极低档关后期', QUALITY_TIERS[2].post === true && QUALITY_TIERS[3].post === false);
 t('高档像素比 2、阴影开', QUALITY_TIERS[0].pixelRatio === 2 && QUALITY_TIERS[0].shadows === true);
@@ -330,6 +331,131 @@ console.log('== 灼烧区 ==');
   t('0.5 秒 tick 一次', z.update(0.1) === true);
   z.update(2.6);
   t('3 秒后灼烧结束', z.alive === false);
+}
+
+console.log('== 霸体（第五阶段） ==');
+t('4 名武将都有霸体配置', Object.values(CHARACTERS).every((c) => !!c.superArmor && Array.isArray(c.superArmor.windows)));
+t('霸体窗口非空且每人不同', (() => {
+  const ws = Object.values(CHARACTERS).map((c) => JSON.stringify(c.superArmor.windows));
+  return ws.every((w) => w !== '[]') && new Set(ws).size === 4;
+})());
+t('霸体减伤在 0.5–1 之间（非免伤）', Object.values(CHARACTERS).every((c) => c.superArmor.dmgMul >= 0.5 && c.superArmor.dmgMul < 1));
+t('霸体减伤各档：马超 0.8 / 孙策 0.75 / 周瑜 0.85 / 典韦 0.6',
+  CHARACTERS.machao.superArmor.dmgMul === 0.8 && CHARACTERS.sunce.superArmor.dmgMul === 0.75
+  && CHARACTERS.zhouyu.superArmor.dmgMul === 0.85 && CHARACTERS.dianwei.superArmor.dmgMul === 0.6);
+t('霸体窗口只引用真实招式（normal/charge/air，1–6 段）', Object.values(CHARACTERS).every((c) =>
+  c.superArmor.windows.every((w) => ['normal', 'charge', 'air'].includes(w.kind) && w.stages.every((s) => s >= 1 && s <= 6))));
+t('马超 N5–N6 霸体、N4 不霸体',
+  inSuperArmorWindow(CHARACTERS.machao.superArmor, 'normal', 5)
+  && inSuperArmorWindow(CHARACTERS.machao.superArmor, 'normal', 6)
+  && !inSuperArmorWindow(CHARACTERS.machao.superArmor, 'normal', 4));
+t('孙策 C3–C6 霸体、C2 不霸体',
+  inSuperArmorWindow(CHARACTERS.sunce.superArmor, 'charge', 3)
+  && inSuperArmorWindow(CHARACTERS.sunce.superArmor, 'charge', 6)
+  && !inSuperArmorWindow(CHARACTERS.sunce.superArmor, 'charge', 2));
+t('周瑜蓄力 C1–C6 全程霸体、普攻不霸体',
+  inSuperArmorWindow(CHARACTERS.zhouyu.superArmor, 'charge', 1)
+  && inSuperArmorWindow(CHARACTERS.zhouyu.superArmor, 'charge', 6)
+  && !inSuperArmorWindow(CHARACTERS.zhouyu.superArmor, 'normal', 3));
+t('典韦只 N6/C6 霸体',
+  inSuperArmorWindow(CHARACTERS.dianwei.superArmor, 'normal', 6)
+  && inSuperArmorWindow(CHARACTERS.dianwei.superArmor, 'charge', 6)
+  && !inSuperArmorWindow(CHARACTERS.dianwei.superArmor, 'normal', 5)
+  && !inSuperArmorWindow(CHARACTERS.dianwei.superArmor, 'charge', 5));
+t('无配置时不霸体', inSuperArmorWindow(null, 'normal', 6) === false);
+{
+  const cm = new ComboMachine(CHARACTERS.machao.superArmor);
+  cm.state = 'attack'; cm.stage = 5; cm.stageT = 0.2;
+  t('霸体窗口内受击返回 armor', cm.takeHit(10) === 'armor');
+  t('霸体受击不打断出招、不清连段', cm.state === 'attack' && cm.stage === 5);
+  t('霸体中 isArmored 为真', cm.isArmored === true);
+  cm.stage = 4;
+  t('窗口外 isArmored 为假', cm.isArmored === false);
+  t('窗口外受击进硬直', cm.takeHit(10) === true && cm.state === 'stagger');
+  t('硬直中再受击被无敌帧挡掉', cm.takeHit(10) === false);
+  step(cm, 18); // 0.30 秒：硬直 0.28 秒已结束，无敌帧 0.5 秒还剩 0.2 秒
+  t('硬直结束但无敌帧未过仍挡受击', cm.state === 'idle' && cm.takeHit(10) === false);
+  step(cm, 15); // 再 0.25 秒：无敌帧过期
+  t('无敌帧过期后可再受击', cm.takeHit(10) === true);
+  // 连续受击不锁死：0.1 秒间隔连打 3 次，只有第一次命中，硬直 0.28 秒后即恢复
+  const cm2 = new ComboMachine(CHARACTERS.sunce.superArmor);
+  cm2.takeHit(10);
+  t('0.1 秒内连打 3 次只有第一次命中', cm2.takeHit(10) === false && cm2.takeHit(10) === false);
+  step(cm2, 20); // 0.33 秒 > 硬直 0.28 秒
+  t('0.33 秒后已脱离硬直可行动', cm2.state === 'idle');
+  const cm3 = new ComboMachine(CHARACTERS.dianwei.superArmor);
+  cm3.pressDodge();
+  t('闪避中仍免疫（霸体不改变闪避）', cm3.takeHit(10) === false);
+  const cm4 = new ComboMachine(CHARACTERS.zhouyu.superArmor);
+  cm4.state = 'charge'; cm4.stage = 2; cm4.stageT = 0.3;
+  t('周瑜蓄力窗口内霸体', cm4.takeHit(10) === 'armor' && cm4.state === 'charge');
+  const cm5 = new ComboMachine(CHARACTERS.dianwei.superArmor);
+  cm5.state = 'charge'; cm5.stage = 6; cm5.stageT = 0.3;
+  t('典韦 C6 终结瞬间霸体', cm5.takeHit(10) === 'armor');
+  cm5.state = 'idle'; cm5.stage = 0;
+  t('待机时不霸体', cm5.isArmored === false && cm5.takeHit(10) === true);
+}
+
+console.log('== 指针锁定配置（第五阶段） ==');
+t('灵敏度 0.0028 适中', POINTER_LOCK.sensitivity === 0.0028);
+t('俯仰限幅 0.08–1.0', POINTER_LOCK.pitchMin === 0.08 && POINTER_LOCK.pitchMax === 1.0);
+
+console.log('== 第五阶段数值 ==');
+t('四武将血量 140/160/125/190',
+  CHARACTERS.machao.stats.hp === 140 && CHARACTERS.sunce.stats.hp === 160
+  && CHARACTERS.zhouyu.stats.hp === 125 && CHARACTERS.dianwei.stats.hp === 190);
+t('血量上调 15–20%（多一点点，非翻倍）', (() => {
+  const oldHp = { machao: 120, sunce: 135, zhouyu: 105, dianwei: 160 };
+  return Object.entries(oldHp).every(([id, old]) => {
+    const r = CHARACTERS[id].stats.hp / old;
+    return r >= 1.15 && r <= 1.20;
+  });
+})());
+t('潼关波次 [10,13,16,19] 总计 58', JSON.stringify(CHAPTERS.tongguan.waves) === '[10,13,16,19]');
+t('潼关 Boss 触发线仍为 60（波次 58 靠补兵兜底，无死锁）', CHAPTERS.tongguan.bossAfterKills === 60);
+t('Boss 血量不动 1400', BOSS.hp === 1400);
+t('试炼目标仍为 240', CHAPTERS.trial.killTarget === 240);
+t('刷新间隔 0.55→0.75 秒', BALANCE.spawn.interval === 0.75);
+t('受击无敌帧 0.5 秒（长于硬直 0.28 秒）', BALANCE.player.hurtIframes === 0.5 && BALANCE.player.hurtIframes > 0.28);
+t('baseHp 同步 140', BALANCE.player.baseHp === 140);
+
+console.log('== 出生点分散（第五阶段） ==');
+t('两张图各 8 个出生点', SPAWN_POINTS.tongguan.length === 8 && SPAWN_POINTS.yangping.length === 8);
+t('出生点都在战场内（±52 米）', Object.values(SPAWN_POINTS).every((pts) =>
+  pts.every((p) => Math.abs(p.x) <= 52 && Math.abs(p.z) <= 52)));
+t('出生点离玩家出生点 ≥14 米（潼关 0,38；阳平关 0,30）', (() => {
+  const playerAt = { tongguan: { x: 0, z: 38 }, yangping: { x: 0, z: 30 } };
+  return Object.entries(SPAWN_POINTS).every(([map, pts]) =>
+    pts.every((p) => Math.hypot(p.x - playerAt[map].x, p.z - playerAt[map].z) >= 14));
+})());
+t('出生点离 Boss 登场点 ≥18 米（两图 Boss 均在 0,-38）', Object.values(SPAWN_POINTS).every((pts) =>
+  pts.every((p) => Math.hypot(p.x - 0, p.z + 38) >= 18)));
+{
+  // 确定性随机：同一批 12 人，中位间距 > 4 米、3 米圈内至多 3 人、8 个点全用上
+  let s = 12345;
+  const rand = () => (s = (s * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const { positions, nextIdx } = pickSpawnPositions(SPAWN_POINTS.tongguan, 12, 0, rand);
+  const ds = [];
+  for (let i = 0; i < positions.length; i++) {
+    for (let j = i + 1; j < positions.length; j++) {
+      ds.push(Math.hypot(positions[i].x - positions[j].x, positions[i].z - positions[j].z));
+    }
+  }
+  ds.sort((a, b) => a - b);
+  const median = ds[Math.floor(ds.length / 2)];
+  let maxCluster = 0;
+  for (const p of positions) {
+    let c = 0;
+    for (const q of positions) if (Math.hypot(p.x - q.x, p.z - q.z) <= 3) c++;
+    maxCluster = Math.max(maxCluster, c);
+  }
+  t('一批 12 人出生间距中位数 > 4 米', median > 4, `median=${median.toFixed(1)}`);
+  t('一批 12 人同点最小间距 ≥ 3 米', ds[0] >= SPAWN_MIN_GAP, `min=${ds[0].toFixed(1)}`);
+  t('半径 3 米圈内至多 3 人', maxCluster <= 3, `maxCluster=${maxCluster}`);
+  t('12 人用满 8 个出生点', new Set(positions.map((p) => p.point)).size === 8);
+  const { positions: p2 } = pickSpawnPositions(SPAWN_POINTS.tongguan, 3, nextIdx, rand);
+  t('轮询跨批次连续（下一批从上批结束处起）', p2[0].point === nextIdx % 8);
+  t('空表回退默认点不抛错', pickSpawnPositions([], 2, 0, rand).positions.length === 2);
 }
 
 console.log('== MSAA / DoF 档位 ==');

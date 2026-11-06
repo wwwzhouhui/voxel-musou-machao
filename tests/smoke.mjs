@@ -99,7 +99,10 @@ for (const [char, mode] of combos) {
   await page.click('#start-btn');
   await page.waitForTimeout(1500);
   await page.evaluate(() => window.__machao.skipCutscene()); // 潼关开场过场，跳过；无过场时无操作
-  await botFight(page, 8);
+  // 第五阶段：刷新间隔 0.55→0.75 秒、同屏敌人减少后，8 秒实机只够打约 2–3 游戏秒，
+  // 机器人伤害刚好卡在 0–1 杀的边界上（跑过一次 kills=0，复核 8 秒两次均为 1 杀），
+  // 窗口过短导致结果随敌种/刷新抖动；改为与其它组合一致的 20 秒（20 秒复核 kills=2）。
+  await botFight(page, 20);
   const s = await page.evaluate(() => ({ state: window.__machao.state, kills: window.__machao.kills, shadows: window.__machao.renderer.shadowMap.enabled }));
   const ok = errors.length === 0 && s.kills > 0 && s.shadows === false;
   if (!ok) allOk = false;

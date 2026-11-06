@@ -10,10 +10,12 @@
 
 export const QUALITY_TIERS = [
   // msaa: 场景 RT 的 WebGL2 samples（4x/2x/0）；dof: 深度景深仅高档开
-  { id: 'high',   label: '高', bloom: true,  post: true,  pixelRatio: 2,   shadows: true,  maxAlive: 46, msaa: 4, dof: true },
-  { id: 'medium', label: '中', bloom: true,  post: true,  pixelRatio: 1.5, shadows: true,  maxAlive: 40, msaa: 2, dof: false },
-  { id: 'low',    label: '低', bloom: false, post: true,  pixelRatio: 1,   shadows: false, maxAlive: 32, msaa: 0, dof: false },
-  { id: 'potato', label: '极低', bloom: false, post: false, pixelRatio: 1, shadows: false, maxAlive: 24, msaa: 0, dof: false },
+  // maxAlive：第五阶段由 46/40/32/24 下调约 30% 至 32/28/22/17（同屏敌人更少）；
+  // BALANCE.spawn.maxAlive 仅作配置同步，实际在场上限以此处为准。
+  { id: 'high',   label: '高', bloom: true,  post: true,  pixelRatio: 2,   shadows: true,  maxAlive: 32, msaa: 4, dof: true },
+  { id: 'medium', label: '中', bloom: true,  post: true,  pixelRatio: 1.5, shadows: true,  maxAlive: 28, msaa: 2, dof: false },
+  { id: 'low',    label: '低', bloom: false, post: true,  pixelRatio: 1,   shadows: false, maxAlive: 22, msaa: 0, dof: false },
+  { id: 'potato', label: '极低', bloom: false, post: false, pixelRatio: 1, shadows: false, maxAlive: 17, msaa: 0, dof: false },
 ];
 
 /** 手动画质模式 → 固定档位下标（与旧 ?quality=low 语义对齐：low = 极低档） */

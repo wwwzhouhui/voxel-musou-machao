@@ -7,6 +7,12 @@ import { BALANCE } from './config.js';
 
 export const COMBO_WINDOW = BALANCE.comboWindow;
 
+/** 霸体窗口判定（纯函数，可 node 自检）：当前出招种类/阶数是否落在配置窗口内 */
+export function inSuperArmorWindow(armor, kind, stage) {
+  if (!armor || !Array.isArray(armor.windows)) return false;
+  return armor.windows.some((w) => w.kind === kind && w.stages.includes(stage));
+}
+
 /**
  * 状态：
  *  idle      可行动
@@ -16,9 +22,16 @@ export const COMBO_WINDOW = BALANCE.comboWindow;
  *  dodge     闪避（无敌帧）
  *  musou     无双爆发（持续状态，攻击强化）
  *  stagger   受击硬直
+ *
+ * 霸体（第五阶段）：构造时传入武将 superArmor 配置；出招窗口内受击不打断、
+ * 不硬直（takeHit 返回 'armor'，伤害照常扣、按配置 dmgMul 减伤）；无双期间
+ * 本就全免疫（invulnerable），等同霸体且更强。霸体只在窗口内生效，非全程。
+ * 受击无敌帧（第五阶段）：一次受击命中后 hurtT 秒内不再受击，防多敌同帧
+ * 连打造成无限硬直锁死；hurtT 长于硬直 0.28 秒，覆盖受击后摇。
  */
 export class ComboMachine {
-  constructor() {
+  constructor(armor = null) {
+    this.armor = armor || null;
     this.reset();
   }
 
@@ -31,6 +44,7 @@ export class ComboMachine {
     this.dodgeCd = 0;
     this.musouT = 0;       // 无双剩余时间
     this.staggerT = 0;
+    this.hurtT = 0;        // 受击后无敌帧剩余时间
     this.airborne = false;
     this.queuedAttack = false;
     this.queuedCharge = false;
@@ -40,6 +54,11 @@ export class ComboMachine {
   get dodging() { return this.state === 'dodge'; }
   get musouActive() { return this.musouT > 0; }
   get invulnerable() { return this.state === 'dodge' || this.musouT > 0; }
+  /** 当前是否处于霸体窗口：出招中且种类/阶数落在配置窗口内 */
+  get isArmored() {
+    if (this.state !== 'attack' && this.state !== 'charge' && this.state !== 'air') return false;
+    return inSuperArmorWindow(this.armor, this.state === 'attack' ? 'normal' : this.state, this.stage);
+  }
 
   /** 按 J：返回出招描述或 null（被吞输入） */
   pressAttack() {
@@ -93,11 +112,18 @@ export class ComboMachine {
     return true;
   }
 
-  /** 受击：打断出招，进入硬直（闪避/无双中免疫） */
+  /**
+   * 受击：返回 false（免疫：闪避/无双/受击无敌帧内，不扣血）、
+   * 'armor'（霸体窗口内：扣血但不打断、不硬直、不清连段），
+   * true（命中：打断出招，进入 0.28 秒硬直，并挂 0.5 秒受击无敌帧）。
+   */
   takeHit(dmg) {
     if (this.invulnerable) return false;
+    if (this.hurtT > 0) return false;
+    if (this.isArmored) return 'armor';
     this.state = 'stagger';
     this.staggerT = 0.28;
+    this.hurtT = BALANCE.player.hurtIframes;
     this.stage = 0;
     this.queuedAttack = false;
     return true;
@@ -105,6 +131,7 @@ export class ComboMachine {
 
   update(dt) {
     this.dodgeCd = Math.max(0, this.dodgeCd - dt);
+    this.hurtT = Math.max(0, this.hurtT - dt);
     if (this.musouT > 0) this.musouT = Math.max(0, this.musouT - dt);
     switch (this.state) {
       case 'attack':
