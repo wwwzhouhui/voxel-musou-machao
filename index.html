@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>体素无双 · 锦马超传 — 潼关之战</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚔️</text></svg>">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #0d1526;
+    font-family: "Kaiti SC", "KaiTi", "STKaiti", "Xingkai SC", serif; color: #f2ead8;
+    -webkit-user-select: none; user-select: none; }
+  #game-container { position: fixed; inset: 0; }
+  #game-container canvas { display: block; }
+  .hidden { display: none !important; }
+
+  /* ---------- HUD ---------- */
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
+  #top-left { position: absolute; top: 14px; left: 16px; width: 340px; }
+  #char-name { font-size: 20px; font-weight: bold; color: #ffd23e; text-shadow: 2px 2px 0 #000; letter-spacing: 2px; }
+  .bar-wrap { margin-top: 6px; height: 20px; background: rgba(0,0,0,.55); border: 2px solid #d8a928;
+    border-radius: 4px; overflow: hidden; position: relative; }
+  .bar-wrap.musou-ready { border-color: #ffd23e; box-shadow: 0 0 12px #ffd23e; animation: pulse 0.7s infinite alternate; }
+  @keyframes pulse { from { box-shadow: 0 0 6px #ffd23e; } to { box-shadow: 0 0 18px #ff9a1a; } }
+  #hp-bar { height: 100%; width: 100%; background: linear-gradient(180deg,#ff6b5a,#c8102e); transition: width .15s; }
+  #musou-bar { height: 100%; width: 0%; background: linear-gradient(180deg,#ffe98a,#ff9a1a); transition: width .15s; }
+  .bar-text { position: absolute; inset: 0; text-align: center; font-size: 13px; line-height: 18px;
+    color: #fff; text-shadow: 1px 1px 0 #000; font-family: sans-serif; }
+  #top-right { position: absolute; top: 14px; right: 16px; text-align: right; }
+  #kill-box { font-size: 26px; font-weight: bold; color: #fff; text-shadow: 2px 2px 0 #000; }
+  #kill-box span { color: #ffd23e; }
+  #combo-count { font-size: 30px; font-weight: bold; color: #ff9a1a; text-shadow: 2px 2px 0 #000, 0 0 14px #ff6b00; }
+  #time-text, #wave-text { font-size: 16px; color: #e8e2d0; text-shadow: 1px 1px 0 #000; font-family: sans-serif; }
+  #minimap { margin-top: 8px; border: 2px solid #d8a928; border-radius: 4px; background: rgba(10,14,20,.7); }
+  #objective { position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,.55); border: 1px solid #d8a928; border-radius: 6px; padding: 8px 18px;
+    font-size: 17px; color: #ffd23e; text-shadow: 1px 1px 0 #000; letter-spacing: 1px; }
+  #objective small { color: #e8e2d0; font-size: 13px; display: block; text-align: center; font-family: sans-serif; }
+  #boss-bar-wrap { position: absolute; top: 108px; left: 50%; transform: translateX(-50%); width: min(560px, 70vw); }
+  #boss-name { text-align: center; font-size: 18px; color: #c07dff; text-shadow: 2px 2px 0 #000; letter-spacing: 3px; }
+  #boss-hp-bar { height: 100%; width: 100%; background: linear-gradient(180deg,#c07dff,#6b3fa0); transition: width .2s; }
+  #boss-warning { position: absolute; top: 32%; left: 50%; transform: translate(-50%,-50%);
+    font-size: 44px; font-weight: bold; color: #ff3a2a; text-shadow: 0 0 16px #ff0000, 3px 3px 0 #000;
+    animation: pulse .3s infinite alternate; }
+  #lock-indicator { position: absolute; top: 46%; left: 50%; transform: translate(-50%,-50%);
+    font-size: 15px; color: #ffd23e; text-shadow: 1px 1px 0 #000; }
+  #announce { position: absolute; top: 22%; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,.65); border: 1px solid #d8a928; border-radius: 8px; padding: 12px 26px;
+    font-size: 21px; color: #ffd23e; text-align: center; text-shadow: 1px 1px 0 #000; max-width: 80vw; }
+  #dmg-layer { position: absolute; inset: 0; overflow: hidden; }
+  .dmg-num { position: absolute; left: 0; top: 0; font-size: 22px; font-weight: bold;
+    text-shadow: 2px 2px 0 #000; font-family: sans-serif; pointer-events: none; white-space: nowrap; }
+  #controls-hint { position: absolute; bottom: 12px; left: 16px; font-size: 13px; color: rgba(242,234,216,.75);
+    text-shadow: 1px 1px 0 #000; font-family: sans-serif; line-height: 1.7; }
+  #quality-indicator { position: absolute; top: 190px; right: 16px; font-size: 13px; color: #ffd23e;
+    text-shadow: 1px 1px 0 #000; font-family: sans-serif; background: rgba(0,0,0,.5);
+    border: 1px solid rgba(216,169,40,.6); border-radius: 4px; padding: 3px 8px; }
+
+  /* ---------- 剧情过场 ---------- */
+  #cutscene { position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column;
+    pointer-events: auto; cursor: pointer; }
+  #cutscene .cs-bar { height: 11vh; background: #000; flex: none; }
+  #cutscene .cs-spacer { flex: 1; }
+  #cutscene-box { background: rgba(0,0,0,.85); border-top: 2px solid #d8a928; border-bottom: 2px solid #d8a928;
+    padding: 16px 24px 20px; text-align: center; }
+  #cutscene-speaker { color: #ffd23e; font-size: 20px; letter-spacing: 6px; text-shadow: 2px 2px 0 #000; }
+  #cutscene-text { font-size: 22px; line-height: 1.7; margin-top: 6px; text-shadow: 2px 2px 0 #000; }
+  #cutscene-progress { font-size: 13px; color: rgba(242,234,216,.7); font-family: sans-serif; margin-top: 8px; }
+  body.musou-mode #game-container canvas { filter: saturate(1.5) contrast(1.1); }
+  body.musou-mode #hud::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+    box-shadow: inset 0 0 90px rgba(255, 154, 26, .55); }
+
+  /* ---------- 全屏界面 ---------- */
+  .screen { position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; background: linear-gradient(180deg, rgba(13,21,38,.88), rgba(46,20,10,.88));
+    overflow-y: auto; padding: 24px; }
+  .screen h1 { font-size: 52px; letter-spacing: 12px; color: #ffd23e;
+    text-shadow: 3px 3px 0 #7a1414, 0 0 30px rgba(255,210,62,.5); margin-bottom: 4px; }
+  .screen h2 { font-size: 20px; color: #e8e2d0; letter-spacing: 6px; margin-bottom: 18px; font-weight: normal; }
+  .screen h3 { font-size: 20px; color: #ffd23e; letter-spacing: 4px; margin: 16px 0 8px; align-self: flex-start; }
+  .screen-inner { width: min(980px, 96vw); display: flex; flex-direction: column; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+  .char-card, .mode-card { pointer-events: auto; cursor: pointer; text-align: left;
+    background: rgba(255,255,255,.06); border: 2px solid rgba(216,169,40,.4); border-radius: 10px;
+    padding: 12px; color: #f2ead8; font-family: inherit; transition: all .15s; }
+  .char-card:hover, .mode-card:hover { border-color: #ffd23e; background: rgba(255,210,62,.12); transform: translateY(-2px); }
+  .char-card.selected, .mode-card.selected { border-color: #ffd23e; background: rgba(255,210,62,.18);
+    box-shadow: 0 0 16px rgba(255,210,62,.4); }
+  .char-swatch { height: 74px; border-radius: 6px; display: flex; align-items: center; justify-content: center; margin-bottom: 8px; }
+  .char-glyph { font-size: 42px; font-weight: bold; color: rgba(255,255,255,.92); text-shadow: 2px 2px 0 rgba(0,0,0,.6); }
+  .char-name { font-size: 20px; font-weight: bold; }
+  .char-title { font-size: 13px; color: #ffd23e; }
+  .char-weapon, .char-musou { font-size: 14px; color: #e8e2d0; margin-top: 3px; }
+  .char-musou { color: #ff9a1a; }
+  .char-desc { font-size: 13px; color: rgba(242,234,216,.8); margin-top: 6px; line-height: 1.5; font-family: sans-serif; }
+  .char-stats { font-size: 12px; color: #ffd23e; margin-top: 6px; font-family: sans-serif; }
+  .char-best, .mode-best { font-size: 12px; color: #7dff8a; margin-top: 4px; font-family: sans-serif; }
+  .mode-name { font-size: 20px; font-weight: bold; color: #ffd23e; }
+  .mode-year { font-size: 13px; color: #e8e2d0; margin-top: 2px; }
+  .mode-desc { font-size: 14px; line-height: 1.6; margin-top: 6px; font-family: sans-serif; color: rgba(242,234,216,.9); }
+  .btn-row { display: flex; gap: 12px; margin-top: 22px; flex-wrap: wrap; justify-content: center; }
+  .btn { pointer-events: auto; cursor: pointer; font-family: inherit; font-size: 20px; letter-spacing: 4px;
+    color: #1a1206; background: linear-gradient(180deg,#ffe98a,#d8a928); border: none; border-radius: 8px;
+    padding: 12px 34px; font-weight: bold; box-shadow: 0 4px 0 #8a6d1c; }
+  .btn:hover { filter: brightness(1.1); }
+  .btn:active { transform: translateY(3px); box-shadow: none; }
+  .btn.ghost { background: rgba(255,255,255,.12); color: #f2ead8; box-shadow: 0 4px 0 rgba(0,0,0,.4); border: 1px solid #d8a928; }
+  .btn.ghost.selected { border-color: #ffd23e; background: rgba(255,210,62,.18); box-shadow: 0 0 12px rgba(255,210,62,.4); }
+  .quality-label { align-self: center; font-size: 17px; color: #ffd23e; letter-spacing: 2px; }
+  #perf-tip { margin-top: 14px; font-size: 13px; color: #ffb36b; font-family: sans-serif; text-align: center; }
+  #perf-tip code { background: rgba(0,0,0,.5); padding: 1px 5px; border-radius: 3px; }
+
+  /* 结算 */
+  #result-grade { font-size: 92px; font-weight: bold; color: #ffd23e; text-shadow: 4px 4px 0 #7a1414, 0 0 40px rgba(255,210,62,.6); line-height: 1; }
+  #result-title { font-size: 44px; letter-spacing: 14px; }
+  #result-reason { font-size: 18px; color: #e8e2d0; margin: 8px 0 4px; }
+  .result-stats { display: grid; grid-template-columns: repeat(2, minmax(180px, 240px)); gap: 8px 30px;
+    margin: 18px 0; font-size: 18px; }
+  .result-stats div { display: flex; justify-content: space-between; border-bottom: 1px dashed rgba(216,169,40,.4); padding: 4px 0; }
+  .result-stats b { color: #ffd23e; font-family: sans-serif; }
+  #result-best { font-size: 17px; color: #7dff8a; }
+
+  /* 帮助 */
+  .help-table { font-size: 16px; line-height: 2; font-family: sans-serif; }
+  .help-table b { display: inline-block; min-width: 170px; color: #ffd23e; font-family: inherit; }
+  .help-note { font-size: 14px; color: rgba(242,234,216,.8); line-height: 1.8; margin-top: 12px; font-family: sans-serif; }
+  @media (max-width: 700px) {
+    .screen h1 { font-size: 34px; letter-spacing: 6px; }
+    #top-left { width: 240px; }
+    #controls-hint { display: none; }
+  }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/three.module.js",
+    "three/addons/": "./vendor/three/addons/"
+  }
+}
+</script>
+</head>
+<body>
+<div id="game-container"></div>
+
+<!-- HUD -->
+<div id="hud" class="hidden">
+  <div id="top-left">
+    <div id="char-name">马超 · 锦马超</div>
+    <div class="bar-wrap"><div id="hp-bar"></div><div class="bar-text" id="hp-text">120 / 120</div></div>
+    <div class="bar-wrap"><div id="musou-bar"></div><div class="bar-text" id="musou-text">无双 0</div></div>
+    <div id="ranged-line" style="margin-top:5px;font-size:13px;color:#ffb36b;text-shadow:1px 1px 0 #000;font-family:sans-serif">远程就绪 [Q]</div>
+  </div>
+  <div id="objective"><span id="objective-text">斩敌 0 / 60</span><small>潼关之战 · 建安十六年</small></div>
+  <div id="top-right">
+    <div id="kill-box">斩 <span id="kill-count">0</span></div>
+    <div id="combo-count" class="hidden"></div>
+    <div id="time-text">00:00</div>
+    <div id="wave-text">第 1 波</div>
+    <canvas id="minimap" width="150" height="150"></canvas>
+  </div>
+  <div id="quality-indicator" class="hidden"></div>
+  <div id="boss-bar-wrap" class="hidden">
+    <div id="boss-name">曹操 · 魏王</div>
+    <div class="bar-wrap"><div id="boss-hp-bar"></div><div class="bar-text" id="boss-hp-text"></div></div>
+  </div>
+  <div id="boss-warning" class="hidden">⚠ 曹操出招！快闪避！</div>
+  <div id="lock-indicator" class="hidden">◎ 已锁定（R 取消）</div>
+  <div id="announce" class="hidden"></div>
+  <div id="dmg-layer"></div>
+  <div id="controls-hint">
+    WASD 移动 · J/左键 普攻 N1-N6 · K/右键 蓄力终结 · Q 远程攻击<br>
+    空格 跳（骑乘：冲刺） · Shift/L 闪避 · I 无双 · R 锁定 · F 上马/下马 · Esc 暂停 · M 静音 · H 帮助 · B 泛光 · P 像素风 · O 景深<br>
+    拖动鼠标旋转视角 · 滚轮缩放
+  </div>
+</div>
+
+<!-- 剧情过场 -->
+<div id="cutscene" class="hidden">
+  <div class="cs-bar"></div>
+  <div class="cs-spacer"></div>
+  <div id="cutscene-box">
+    <div id="cutscene-speaker"></div>
+    <div id="cutscene-text"></div>
+    <div id="cutscene-progress"></div>
+  </div>
+  <div class="cs-bar"></div>
+</div>
+
+<!-- 标题 / 选角 / 章节 -->
+<div id="title-screen" class="screen">
+  <div class="screen-inner">
+    <h1>体素无双 · 锦马超传</h1>
+    <h2>—— 潼关之战 · 建安十六年 ——</h2>
+    <h3>◆ 选择武将</h3>
+    <div class="cards" id="char-cards"></div>
+    <h3>◆ 选择战役</h3>
+    <div class="cards" id="mode-cards"></div>
+    <h3>◆ 选择地图</h3>
+    <div class="cards" id="map-cards"></div>
+    <div class="btn-row">
+      <button class="btn" id="start-btn">出 战</button>
+      <button class="btn ghost" id="help-btn">操作说明</button>
+      <button class="btn ghost" id="mute-btn">🔊 音效开</button>
+      <button class="btn ghost" id="bloom-btn">✨ 泛光开</button>
+      <button class="btn ghost" id="pixel-btn">▦ 像素风关</button>
+      <button class="btn ghost" id="dof-btn">◉ 景深关</button>
+    </div>
+    <div class="btn-row" id="quality-row" style="margin-top:12px">
+      <span class="quality-label">画质：</span>
+      <button class="btn ghost" id="quality-auto">自动</button>
+      <button class="btn ghost" id="quality-high">高</button>
+      <button class="btn ghost" id="quality-medium">中</button>
+      <button class="btn ghost" id="quality-low">低</button>
+    </div>
+    <div id="perf-tip" class="hidden"></div>
+    <p style="margin-top:16px;font-size:13px;color:rgba(242,234,216,.6);font-family:sans-serif;text-align:center">
+      浏览器体素无双 · Three.js r186 · 无构建 · 纯 ES Modules · 程序化音效 · localStorage 存档<br>
+      URL 参数：?char=machao|sunce|zhouyu|dianwei &nbsp; ?mode=tongguan|endless|trial &nbsp; ?map=tongguan|yangping &nbsp; ?enemies=220 &nbsp; ?quality=auto|high|medium|low &nbsp; ?post=on|bloom|pixel|off &nbsp; ?skipintro=1 &nbsp; ?dof=on|off &nbsp; ?msaa=0|2|4
+    </p>
+  </div>
+</div>
+
+<!-- 帮助 -->
+<div id="help-screen" class="screen hidden">
+  <div class="screen-inner" style="max-width:640px">
+    <h1 style="font-size:36px">操作说明</h1>
+    <div class="help-table">
+      <div><b>W A S D / 方向键</b>移动（相机相对）</div>
+      <div><b>J 或鼠标左键</b>普攻，连按打出 N1-N6 连段</div>
+      <div><b>K 或鼠标右键</b>蓄力终结 C1-C6（按当前连段阶数）</div>
+      <div><b>空格</b>跳跃，空中按 J 为空中攻击</div>
+      <div><b>Shift 或 L</b>闪避（短暂无敌）</div>
+      <div><b>I</b>无双爆发（无双槽满时）</div>
+      <div><b>R</b>锁定最近武将 / Boss，再按取消</div>
+      <div><b>Q</b>远程攻击（马超投枪 / 孙策飞矛×3 / 周瑜火矢·灼烧 / 典韦飞戟），自动瞄准锁定目标或最近敌兵，骑乘时也能骑射</div>
+      <div><b>Esc</b>暂停　<b>M</b>静音　<b>H</b>本帮助　<b>B</b>泛光开关　<b>P</b>像素风开关　<b>O</b>景深开关</div>
+      <div><b>F</b>靠近马匹上马 / 下马（骑乘移速 ×1.6，持续移动 2 秒冲锋撞人）</div>
+      <div><b>空格（骑乘）</b>冲刺爆发 0.5 秒（冷却 3 秒），不能跳跃；<b>Shift/L（骑乘）</b>马上短冲</div>
+      <div><b>拖动鼠标</b>旋转视角　<b>滚轮</b>缩放</div>
+    </div>
+    <p class="help-note">
+      玩法：潼关之战先斩敌 60 人，引曹操现身并击败他即获胜；自由演武为无尽波次；千人斩试炼限时 3 分钟、目标 240 斩（第四阶段平衡探针后由 300 下调，见 README / PROGRESS）。<br>
+      击杀可积攒无双槽；小兵有概率掉落包子，拾取回血 25 点；连击越高越容易打出高评级（S/A/B/C）。<br>
+      Boss 出招前会全身闪红并弹出警告，看到警告立刻闪避！<br>
+      <b style="color:#ffd23e">弓手反制：</b>弓手（墨绿甲、绿缨、木弓）会在 10–26 米外站定拉弓，弓身发橙光约 0.75 秒后射箭。
+      箭是抛物线，跑动 + 闪避（无敌帧）可以躲开；冲到弓手面前或一刀砍中，就能打断拉弓。弓手怕近身，不会扎堆。
+      每波弓手占 15–25%，波次越高越多。<br>
+      <b style="color:#ffd23e">地图：</b>潼关峡谷（南北峡谷 + 关墙）；阳平关夜战（中央营寨、东侧河流木桥、西侧粮仓、南侧隘口），
+      自由演武与千人斩可在两张图上玩，潼关之战固定用潼关图。<br>
+      <b style="color:#ffd23e">剧情过场：</b>潼关开场、曹操登场、胜利结尾均有过场，任意键 / 点击 / Esc 跳过；地址栏加 <code>?skipintro=1</code> 直接跳开场。
+      自由演武 / 试炼没有开场过场。<br>
+      <b style="color:#ffd23e">坐骑：</b>马匹停在出生点附近（小地图黄点），靠近按 F 上马。骑乘移速 ×1.6、转向变钝、攻击范围 ×1.15；
+      持续移动 2 秒进入冲锋，撞中小兵 25 伤击飞（每敌每轮只算一次）；单次受击 ≥20 或被 Boss 冲锋撞中会落马，马留在原地可再上。<br>
+      <b style="color:#ffd23e">自适应画质：</b>默认“自动”，帧率低于 30 持续 3 秒降一档、高于 55 持续 8 秒升一档
+      （高 → 中 → 低 → 极低：Bloom、像素比、阴影、后期、场上敌数上限依次下调）；标题界面可改手动高 / 中 / 低，手动档永不自动变。
+      高档开 4x MSAA 与深度景深，中档 2x MSAA，低档以下关闭；景深焦点跟随锁定目标 / 玩家，远景模糊、近处清晰。
+      <code>?msaa=0|2|4</code>、<code>?dof=on|off</code> 可手动覆盖，战斗中按 <b>O</b> 开关景深。<br>
+      <b style="color:#ffd23e">远程攻击：</b>按 <b>Q</b> 发射，按武将不同：马超投枪（28 伤、26 米、冷却 2.2 秒）、
+      孙策飞矛（3 发扇形、各 14 伤、20 米、1.8 秒）、周瑜火矢（16 伤、30 米、1.4 秒，落点灼烧 3 秒、每秒 6 伤、半径 2.2 米）、
+      典韦飞戟（40 伤、14 米、2.8 秒）。伤害按武将攻击倍率结算；骑乘时射程 ×0.85、散布变大；命中攒无双。
+    </p>
+    <div class="btn-row">
+      <button class="btn" id="help-close">知 道 了</button>
+      <button class="btn ghost" id="help-close-2">返回战斗</button>
+    </div>
+  </div>
+</div>
+
+<!-- 暂停 -->
+<div id="pause-screen" class="screen hidden">
+  <h1 id="pause-title" style="font-size:40px">暂 停</h1>
+  <div class="btn-row">
+    <button class="btn" id="resume-btn">继续战斗</button>
+    <button class="btn ghost" id="restart-btn">重新开始</button>
+    <button class="btn ghost" id="quit-btn">返回标题</button>
+  </div>
+</div>
+
+<!-- 结算 -->
+<div id="result-screen" class="screen hidden">
+  <div id="result-grade">S</div>
+  <div id="result-title">胜 利</div>
+  <div id="result-reason"></div>
+  <div class="result-stats">
+    <div><span>斩杀</span><b id="result-kills">0</b></div>
+    <div><span>最大连击</span><b id="result-combo">0</b></div>
+    <div><span>用时</span><b id="result-time">00:00</b></div>
+    <div><span>承受伤害</span><b id="result-damage">0</b></div>
+  </div>
+  <div id="result-best"></div>
+  <div class="btn-row">
+    <button class="btn" id="again-btn">再战一场</button>
+    <button class="btn ghost" id="result-menu-btn">返回标题</button>
+  </div>
+</div>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
